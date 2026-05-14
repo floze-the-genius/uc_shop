@@ -1,0 +1,77 @@
+# others
+.vscode/ 
+.dev/
+.secrets
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.db
+
+# Virtual Environment
+venv/
+env/
+.env/
+.venv/
+# .env and .env-test are temporarily uncommented to allow local tooling access
+env
+env-test
+ENV/
+env.bak/
+venv.bak/
+.env
+.env-dev
+
+
+# PyCharm specific files
+.idea/
+*.iml
+
+# Distribution / packaging
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Logs
+*.log
+
+# Coverage reports
+htmlcov/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+
+# Test results
+*.test
+
+# MyPy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pytest
+.pytest_cache/
+
+# Misc
+*.swp
+*.swo
+.DS_Store
+Thumbs.dbg
+
+README.md
+logs/
+testfield/
+ztest/
+models_data/
+0002_create_test_data.py
+ws_results/

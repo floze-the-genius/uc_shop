@@ -1,6 +1,7 @@
-import asyncio, random, logging, os
+import asyncio, random, logging
 from datetime import datetime
 from producer import OrderProducer
+from config import KAFKA_BOOTSTRAP_SERVERS, KAFKA_TOPIC, TEST_NUM_ORDERS
 
 logging.basicConfig(
     level=logging.INFO,
@@ -29,8 +30,8 @@ def generate_test_order(order_id: int) -> dict:
 
 async def main():
     producer = OrderProducer(
-        bootstrap_server=os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092"),
-        topic="orders",
+        bootstrap_server=KAFKA_BOOTSTRAP_SERVERS,
+        topic=KAFKA_TOPIC,
     )
 
     try:
@@ -38,15 +39,14 @@ async def main():
 
         logger.info("Starting test producer...")
 
-        num_orders = 20
         orders = []
 
-        for i in range(1, num_orders + 1):
+        for i in range(1, TEST_NUM_ORDERS + 1):
             order = generate_test_order(i)
             orders.append(order)
             logger.info(f"Generated test order: {order['id']}")
 
-        logger.info(f"Publishing {len(orders)} orders to Kafka topic 'orders'...")
+        logger.info(f"Publishing {len(orders)} orders to Kafka topic '{KAFKA_TOPIC}'...")
         await producer.publish_orders_batch(orders)
 
         logger.info(f"Successfully published {len(orders)} orders")

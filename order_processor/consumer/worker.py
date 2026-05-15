@@ -1,5 +1,6 @@
-import asyncio, json, logging, os, signal, traceback
+import asyncio, json, logging, signal, traceback
 from aiokafka import AIOKafkaConsumer, TopicPartition
+from config import KAFKA_BOOTSTRAP_SERVERS, KAFKA_TOPIC, KAFKA_GROUP_ID, CONSUMER_NAME, MAX_PARALLEL_ORDERS, POLL_TIMEOUT_MS
 from mocks.repositories import OrdersRepository, ProductRepository
 from mocks.processor import OrderProcessorFactory
 from mocks.models import OrderStatus, OrderDict, OrderUpdate
@@ -10,17 +11,17 @@ logger = logging.getLogger(__name__)
 class OrderConsumerWorker:
     def __init__(
         self,
-        bootstrap_servers: str = "kafka:9092",
-        topic: str = "orders",
-        group_id: str = "order_processors",
+        bootstrap_servers: str = KAFKA_BOOTSTRAP_SERVERS,
+        topic: str = KAFKA_TOPIC,
+        group_id: str = KAFKA_GROUP_ID,
         consumer_name: str | None = None,
-        max_parallel_orders: int = 10,
-        poll_timeout_ms: int = 5000,
+        max_parallel_orders: int = MAX_PARALLEL_ORDERS,
+        poll_timeout_ms: int = POLL_TIMEOUT_MS,
     ):
         self.bootstrap_servers = bootstrap_servers
         self.topic = topic
         self.group_id = group_id
-        self.consumer_name = consumer_name or os.getenv("CONSUMER_NAME", "worker_1")
+        self.consumer_name = consumer_name or CONSUMER_NAME
         self.max_parallel_orders = max_parallel_orders
         self.poll_timeout_ms = poll_timeout_ms
         self._consumer: AIOKafkaConsumer | None = None
@@ -86,7 +87,6 @@ class OrderConsumerWorker:
     async def _process_partition_messages(
         self, tp: TopicPartition, messages: list
     ) -> None:
-        """Process messages from a single partition sequentially to preserve offset order."""
         for message in messages:
             if not self._running:
                 break
@@ -94,7 +94,6 @@ class OrderConsumerWorker:
                 order = self._parse_order_from_message(message)
                 await self._process_single_order(order)
 
-                # Commit offset after each successful message
                 await self._consumer.commit({tp: message.offset + 1})
                 logger.info(
                     f"Committed offset {message.offset + 1} for {tp}"
@@ -155,9 +154,9 @@ async def main():
     )
 
     worker = OrderConsumerWorker(
-        bootstrap_servers=os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092"),
-        consumer_name=os.getenv("CONSUMER_NAME"),
-        max_parallel_orders=int(os.getenv("MAX_PARALLEL_ORDERS", "5")),
+        bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
+        consumer_name=CONSUMER_NAME,
+        max_parallel_orders=MAX_PARALLEL_ORDERS,
     )
 
     loop = asyncio.get_running_loop()

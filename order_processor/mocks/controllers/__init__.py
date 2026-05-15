@@ -1,1 +1,1 @@
-from .orders_controller import OrdersController
+from .orders import OrdersController

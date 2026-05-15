@@ -2,17 +2,20 @@ import asyncio, json, logging
 from typing import Any
 from aiokafka import AIOKafkaProducer
 from aiokafka.admin import AIOKafkaAdminClient, NewTopic
-from mocks.config import BOOTSTRAP_SERVER
+from config import KAFKA_BOOTSTRAP_SERVERS, KAFKA_TOPIC, KAFKA_NUM_PARTITIONS, KAFKA_REPLICATION_FACTOR
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
 logger = logging.getLogger(__name__)
 
 
 class OrderProducer:
     def __init__(
         self,
-        bootstrap_server: str = "localhost:9092",
-        topic: str = "orders",
+        bootstrap_server: str = KAFKA_BOOTSTRAP_SERVERS,
+        topic: str = KAFKA_TOPIC,
     ):
         self.bootstrap_servers = bootstrap_server
         self.topic = topic
@@ -42,8 +45,8 @@ class OrderProducer:
                 await admin.create_topics([
                     NewTopic(
                         name=self.topic,
-                        num_partitions=3,
-                        replication_factor=1,
+                        num_partitions=KAFKA_NUM_PARTITIONS,
+                        replication_factor=KAFKA_REPLICATION_FACTOR,
                     )
                 ])
                 logger.info(f"Created topic '{self.topic}'")
@@ -97,7 +100,10 @@ class OrderProducer:
 
 
 async def main():
-    producer = OrderProducer(bootstrap_server=BOOTSTRAP_SERVER)
+    producer = OrderProducer(
+        bootstrap_server=KAFKA_BOOTSTRAP_SERVERS,
+        topic=KAFKA_TOPIC,
+    )
     await producer.connect()
 
     sample_order = {

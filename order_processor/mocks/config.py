@@ -1,1 +1,0 @@
-BOOTSTRAP_SERVER = "kafka:9092"

@@ -1,0 +1,99 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: order_processor_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - order_processor_network
+
+  worker-1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: order_processor_worker_1
+    command: python -m consumer.worker
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - CONSUMER_NAME=worker_1
+      - MAX_PARALLEL_ORDERS=5
+      - LOG_LEVEL=INFO
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - order_processor_network
+
+  worker-2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: order_processor_worker_2
+    command: python -m consumer.worker
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - CONSUMER_NAME=worker_2
+      - MAX_PARALLEL_ORDERS=5
+      - LOG_LEVEL=INFO
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - order_processor_network
+
+  worker-3:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: order_processor_worker_3
+    command: python -m consumer.worker
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - CONSUMER_NAME=worker_3
+      - MAX_PARALLEL_ORDERS=5
+      - LOG_LEVEL=INFO
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - order_processor_network
+
+  producer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: order_processor_producer
+    command: python -m producer.producer
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - LOG_LEVEL=INFO
+    depends_on:
+      redis:
+        condition: service_healthy
+    profiles:
+      - producer
+    networks:
+      - order_processor_network
+
+volumes:
+  redis_data:
+    driver: local
+
+networks:
+  order_processor_network:
+    driver: bridge

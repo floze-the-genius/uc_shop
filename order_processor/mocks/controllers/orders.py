@@ -1,5 +1,4 @@
-from .repositories import OrdersRepository
-
+from mocks.repositories import OrdersRepository
 
 class OrdersController:
     def __init__(self, orders_repository: OrdersRepository):

@@ -8,7 +8,7 @@ docker-compose up -d --build
 ### Проверка работы (можно запустить для любого воркера)
 
 ```bash
-docker exec -it order_processor_worker_1 python3 test_producer.py
+docker exec -it order_processor-worker-1 python3 test_producer.py
 ```
 
 ### Остановка

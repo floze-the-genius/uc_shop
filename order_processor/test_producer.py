@@ -1,7 +1,4 @@
-import asyncio
-import random
-import logging
-import os
+import asyncio, random, logging, os
 from datetime import datetime
 from producer import OrderProducer
 
@@ -32,7 +29,7 @@ def generate_test_order(order_id: int) -> dict:
 
 async def main():
     producer = OrderProducer(
-        bootstrap_servers=os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092"),
+        bootstrap_server=os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092"),
         topic="orders",
     )
 
@@ -57,7 +54,7 @@ async def main():
         info = await producer.get_topic_info()
         logger.info(f"Topic info: {info}")
 
-        partitions = await producer.get_topic_partitions()
+        partitions = await producer.get_topic_partitions_count()
         logger.info(f"Topic partitions: {partitions}")
 
     except Exception as e:

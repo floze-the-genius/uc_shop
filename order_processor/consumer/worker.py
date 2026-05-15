@@ -1,12 +1,5 @@
-import asyncio
-import json
-import logging
-import os
-import signal
-import traceback
-from typing import Optional
+import asyncio, json, logging, os, signal, traceback
 from aiokafka import AIOKafkaConsumer, TopicPartition
-
 from mocks.repositories import OrdersRepository, ProductRepository
 from mocks.processor import OrderProcessorFactory
 from mocks.models import OrderStatus, OrderDict, OrderUpdate
@@ -20,7 +13,7 @@ class OrderConsumerWorker:
         bootstrap_servers: str = "kafka:9092",
         topic: str = "orders",
         group_id: str = "order_processors",
-        consumer_name: Optional[str] = None,
+        consumer_name: str | None = None,
         max_parallel_orders: int = 10,
         poll_timeout_ms: int = 5000,
     ):
@@ -30,7 +23,7 @@ class OrderConsumerWorker:
         self.consumer_name = consumer_name or os.getenv("CONSUMER_NAME", "worker_1")
         self.max_parallel_orders = max_parallel_orders
         self.poll_timeout_ms = poll_timeout_ms
-        self._consumer: Optional[AIOKafkaConsumer] = None
+        self._consumer: AIOKafkaConsumer | None = None
         self._running = False
         self._orders_repo = OrdersRepository()
         self._product_repo = ProductRepository()

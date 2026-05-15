@@ -50,22 +50,20 @@ services:
     networks:
       - order_processor_network
 
-  producer:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: order_processor_producer
-    command: python -m producer.producer
-    environment:
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      - LOG_LEVEL=INFO
-    depends_on:
-      kafka:
-        condition: service_healthy
-    profiles:
-      - producer
-    networks:
-      - order_processor_network
+  # producer:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   container_name: order_processor_producer
+  #   command: python -m producer.producer
+  #   environment:
+  #     - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+  #     - LOG_LEVEL=INFO
+  #   depends_on:
+  #     kafka:
+  #       condition: service_healthy
+  #   networks:
+  #     - order_processor_network
 
 volumes:
   kafka_data:

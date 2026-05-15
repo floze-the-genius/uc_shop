@@ -1,72 +1,50 @@
 services:
-  redis:
-    image: redis:7-alpine
-    container_name: order_processor_redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    command: redis-server --appendonly yes
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: order_processor_zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
     networks:
       - order_processor_network
 
-  worker-1:
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: order_processor_kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_NUM_PARTITIONS: 3
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 5s
+      timeout: 10s
+      retries: 10
+    networks:
+      - order_processor_network
+
+  worker:
+    deploy:
+      mode: replicated
+      replicas: 3
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: order_processor_worker_1
     command: python -m consumer.worker
     environment:
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
       - CONSUMER_NAME=worker_1
       - MAX_PARALLEL_ORDERS=5
       - LOG_LEVEL=INFO
     depends_on:
-      redis:
-        condition: service_healthy
-    restart: unless-stopped
-    networks:
-      - order_processor_network
-
-  worker-2:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: order_processor_worker_2
-    command: python -m consumer.worker
-    environment:
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - CONSUMER_NAME=worker_2
-      - MAX_PARALLEL_ORDERS=5
-      - LOG_LEVEL=INFO
-    depends_on:
-      redis:
-        condition: service_healthy
-    restart: unless-stopped
-    networks:
-      - order_processor_network
-
-  worker-3:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: order_processor_worker_3
-    command: python -m consumer.worker
-    environment:
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - CONSUMER_NAME=worker_3
-      - MAX_PARALLEL_ORDERS=5
-      - LOG_LEVEL=INFO
-    depends_on:
-      redis:
+      kafka:
         condition: service_healthy
     restart: unless-stopped
     networks:
@@ -79,11 +57,10 @@ services:
     container_name: order_processor_producer
     command: python -m producer.producer
     environment:
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
       - LOG_LEVEL=INFO
     depends_on:
-      redis:
+      kafka:
         condition: service_healthy
     profiles:
       - producer
@@ -91,7 +68,7 @@ services:
       - order_processor_network
 
 volumes:
-  redis_data:
+  kafka_data:
     driver: local
 
 networks:

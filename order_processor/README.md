@@ -11,25 +11,31 @@ docker-compose up -d --build
 docker exec -it order_processor_worker_1 python3 test_producer.py
 ```
 
+### Остановка
+
+```bash
+docker-compose down
+```
+
 ### Суть решения
 
 ```
-Заказ создается -> Redis Stream -> Consumer Group -> Workers
-                                      |
-                                      v
-                              Pending/ACK/Dead Letter
+Заказ создается -> Kafka Topic (orders) -> Consumer Group (order_processors) -> Workers
+                                                    |
+                                                    v
+                              Offset Commit / Retry (без коммита при ошибке)
 ```
 
-### Преимущества использования Redis Streams
+### Преимущества использования Kafka
 
 **Event-driven**: Заказы обрабатываются сразу после создания, без polling
 
-**Distributed**: Несколько consumer'ов могут обрабатывать один stream
+**Distributed**: Несколько consumer'ов в одной group распределяют партиции между собой
 
-**Built-in ACK**: Redis гарантирует доставку сообщений
+**Persistent**: Сообщения хранятся на диске с настраиваемым retention
 
-**Automatic retries**: Необработанные сообщения возвращаются в очередь
+**Scalable**: Масштабируется за счет увеличения партиций и worker'ов
 
-**Scaling**: Легко добавить больше worker'ов
+**Exactly-once / At-least-once**: Ручной offset commit после успешной обработки
 
-**Proper locking**: Consumer group обеспечивает exclusive processing
+**Proper ordering**: Сообщения внутри одной партиции обрабатываются последовательно

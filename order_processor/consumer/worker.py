@@ -101,7 +101,6 @@ class OrderConsumerWorker:
             except Exception:
                 logger.error(
                     f"Error processing message at offset {message.offset} in {tp}. "
-                    f"Stopping further commits for this partition."
                 )
                 break
 

@@ -1,2 +1,3 @@
 from .order_processor import OrderProcessor
+from .failing_order_processor import FailingOrderProcessor
 from .order_processor_factory import OrderProcessorFactory

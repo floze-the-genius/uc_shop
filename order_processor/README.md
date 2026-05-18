@@ -36,6 +36,4 @@ docker-compose down
 
 **Scalable**: Масштабируется за счет увеличения партиций и worker'ов
 
-**Exactly-once / At-least-once**: Ручной offset commit после успешной обработки
-
 **Proper ordering**: Сообщения внутри одной партиции обрабатываются последовательно

@@ -48,7 +48,14 @@ class OrdersRepository:
         return result
 
     async def create_order(self, order: OrderDict) -> bool:
-        if order["id"] in self._orders:
+        if order.get("id") in self._orders:
             return False
         self._orders[order["id"]] = order
         return True
+
+    async def get_or_create(self, order: OrderDict) -> bool:
+        result = await self.get_order_by_id(order.get("id"))
+        if result:
+            return result
+        
+        return await self.create_order(order)

@@ -19,5 +19,10 @@ MAX_PARALLEL_ORDERS = int(os.getenv("MAX_PARALLEL_ORDERS", "5"))
 POLL_TIMEOUT_MS = int(os.getenv("POLL_TIMEOUT_MS", "5000"))
 WORKER_REPLICAS = int(os.getenv("WORKER_REPLICAS", "3"))
 
+# ── Retry & DLQ ───────────────────────────────
+MAX_RETRIES = int(os.getenv("MAX_RETRIES", "3"))
+RETRY_DELAY_SECONDS = int(os.getenv("RETRY_DELAY_SECONDS", "3"))
+KAFKA_DLQ_TOPIC = os.getenv("KAFKA_DLQ_TOPIC", "orders_dlq")
+
 # ── Test Producer ─────────────────────────────
 TEST_NUM_ORDERS = int(os.getenv("TEST_NUM_ORDERS", "20"))

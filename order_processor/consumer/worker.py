@@ -1,9 +1,20 @@
 import asyncio, json, logging, signal, traceback
-from aiokafka import AIOKafkaConsumer, TopicPartition
-from config import KAFKA_BOOTSTRAP_SERVERS, KAFKA_TOPIC, KAFKA_GROUP_ID, CONSUMER_NAME, MAX_PARALLEL_ORDERS, POLL_TIMEOUT_MS
+from aiokafka import AIOKafkaConsumer, AIOKafkaProducer, TopicPartition
+from config import (
+    KAFKA_BOOTSTRAP_SERVERS,
+    KAFKA_TOPIC,
+    KAFKA_GROUP_ID,
+    KAFKA_DLQ_TOPIC,
+    CONSUMER_NAME,
+    MAX_PARALLEL_ORDERS,
+    POLL_TIMEOUT_MS,
+    MAX_RETRIES,
+    RETRY_DELAY_SECONDS,
+)
 from mocks.repositories import OrdersRepository, ProductRepository
 from mocks.processor import OrderProcessorFactory
 from mocks.models import OrderStatus, OrderDict, OrderUpdate
+from .wrapper import retry, dlq_safe
 
 logger = logging.getLogger(__name__)
 
@@ -14,17 +25,24 @@ class OrderConsumerWorker:
         bootstrap_servers: str = KAFKA_BOOTSTRAP_SERVERS,
         topic: str = KAFKA_TOPIC,
         group_id: str = KAFKA_GROUP_ID,
+        dlq_topic: str = KAFKA_DLQ_TOPIC,
         consumer_name: str | None = None,
         max_parallel_orders: int = MAX_PARALLEL_ORDERS,
         poll_timeout_ms: int = POLL_TIMEOUT_MS,
+        max_retries: int = MAX_RETRIES,
+        retry_delay: int = RETRY_DELAY_SECONDS,
     ):
         self.bootstrap_servers = bootstrap_servers
         self.topic = topic
         self.group_id = group_id
+        self.dlq_topic = dlq_topic
         self.consumer_name = consumer_name or CONSUMER_NAME
         self.max_parallel_orders = max_parallel_orders
         self.poll_timeout_ms = poll_timeout_ms
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
         self._consumer: AIOKafkaConsumer | None = None
+        self._dlq_producer: AIOKafkaProducer | None = None
         self._running = False
         self._orders_repo = OrdersRepository()
         self._product_repo = ProductRepository()
@@ -46,10 +64,23 @@ class OrderConsumerWorker:
             f"(topic={self.topic}, group_id={self.group_id})"
         )
 
+        self._dlq_producer = AIOKafkaProducer(
+            bootstrap_servers=self.bootstrap_servers,
+            value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+            key_serializer=lambda k: k.encode("utf-8") if k else None,
+        )
+        await self._dlq_producer.start()
+        logger.info(
+            f"Worker {self.consumer_name} DLQ producer connected (dlq_topic={self.dlq_topic})"
+        )
+
     async def disconnect(self) -> None:
         if self._consumer:
             await self._consumer.stop()
-            logger.info(f"Worker {self.consumer_name} disconnected from Kafka")
+            logger.info(f"Worker {self.consumer_name} consumer disconnected from Kafka")
+        if self._dlq_producer:
+            await self._dlq_producer.stop()
+            logger.info(f"Worker {self.consumer_name} DLQ producer disconnected")
 
     def _parse_order_from_message(self, message) -> OrderDict:
         value = message.value
@@ -61,48 +92,54 @@ class OrderConsumerWorker:
             "metadata": value.get("metadata", {}),
         }
 
+    @retry(retries=MAX_RETRIES, delay=RETRY_DELAY_SECONDS)
     async def _process_single_order(self, order: OrderDict) -> None:
-        try:
-            logger.info(f"Processing order {order['id']}")
+        logger.info(f"Processing order {order['id']}")
 
-            await self._orders_repo.create_order(order)
+        await self._orders_repo.get_or_create(order)
 
-            factory = OrderProcessorFactory(self._orders_repo, self._product_repo)
-            processor = await factory.get_processor_for_order(order["id"])
+        factory = OrderProcessorFactory(self._orders_repo, self._product_repo)
+        processor = await factory.get_processor_for_order(order["id"])
 
-            result = await processor.process_order(order["id"])
+        result = await processor.process_order(order["id"])
 
-            order_update = OrderUpdate(status=OrderStatus.COMPLETED)
-            await self._orders_repo.update_order(order["id"], order_update)
+        order_update = OrderUpdate(status=OrderStatus.COMPLETED)
+        await self._orders_repo.update_order(order["id"], order_update)
 
-            logger.info(f"Successfully processed order {order['id']}: {result}")
+        logger.info(f"Successfully processed order {order['id']}: {result}")
 
-        except Exception:
-            logger.error(
-                f"Error processing order {order.get('id', 'unknown')}: "
-                f"{traceback.format_exc()}"
-            )
-            raise
+    async def _send_to_dlq(self, message, error_reason: str) -> None:
+        dlq_payload = {
+            "original_message": message.value,
+            "error_reason": error_reason,
+            "consumer_name": self.consumer_name,
+            "retry_count": self.max_retries,
+            "failed_at": asyncio.get_event_loop().time(),
+        }
+        await self._dlq_producer.send(
+            self.dlq_topic,
+            key=message.key,
+            value=dlq_payload,
+        )
+        logger.warning(
+            f"Sent message for order {message.value.get('id') or message.value.get('order_id')} "
+            f"to DLQ topic '{self.dlq_topic}': {error_reason}"
+        )
 
-    async def _process_partition_messages(
-        self, tp: TopicPartition, messages: list
-    ) -> None:
+    @dlq_safe
+    async def _try_process_message(self, message, tp: TopicPartition) -> None:
+        order = self._parse_order_from_message(message)
+        await self._process_single_order(order)
+
+    async def _process_partition_messages(self, tp: TopicPartition, messages: list) -> None:
         for message in messages:
             if not self._running:
                 break
-            try:
-                order = self._parse_order_from_message(message)
-                await self._process_single_order(order)
 
+            needs_commit = await self._try_process_message(message, tp)
+            if needs_commit:
                 await self._consumer.commit({tp: message.offset + 1})
-                logger.info(
-                    f"Committed offset {message.offset + 1} for {tp}"
-                )
-            except Exception:
-                logger.error(
-                    f"Error processing message at offset {message.offset} in {tp}. "
-                )
-                break
+                logger.info(f"Committed offset {message.offset + 1} for {tp}")
 
     async def run(self) -> None:
         await self.connect()
@@ -156,6 +193,8 @@ async def main():
         bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
         consumer_name=CONSUMER_NAME,
         max_parallel_orders=MAX_PARALLEL_ORDERS,
+        max_retries=MAX_RETRIES,
+        retry_delay=RETRY_DELAY_SECONDS,
     )
 
     loop = asyncio.get_running_loop()

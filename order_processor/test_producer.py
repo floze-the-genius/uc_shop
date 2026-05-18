@@ -1,6 +1,7 @@
 import asyncio, random, logging
 from datetime import datetime
 from producer import OrderProducer
+from mocks.models import ProductCategory, OrderStatus
 from config import KAFKA_BOOTSTRAP_SERVERS, KAFKA_TOPIC, TEST_NUM_ORDERS
 
 logging.basicConfig(
@@ -11,8 +12,8 @@ logger = logging.getLogger(__name__)
 
 
 def generate_test_order(order_id: int) -> dict:
-    categories = ["gcrystals", "coins", "premium"]
-    statuses = ["paid", "processing"]
+    categories = list(ProductCategory)
+    statuses = [OrderStatus.API_PENDING, OrderStatus.PENDING, OrderStatus.PAID]
 
     return {
         "id": f"order_{order_id}",

@@ -38,20 +38,20 @@ def retry(retries = 3, delay = 3):
 
 def dlq_safe(func):
     @functools.wraps(func)
-    async def wrapper(self, message, tp, *args, **kwargs):
+    async def wrapper(self, message_id, fields, *args, **kwargs):
         try:
-            await func(self, message, tp, *args, **kwargs)
+            await func(self, message_id, fields, *args, **kwargs)
             return True
         except RetryExhaustedError as e:
             logger.error(f"Message exhausted all retries. Sending to DLQ.")
             try:
-                await self._send_to_dlq(message, str(e))
+                await self._send_to_dlq(fields, str(e))
                 return True
             except Exception as dlq_err:
                 logger.error(
-                    f"Failed to send message to DLQ: {dlq_err}. Offset will not be committed to avoid data loss.")
+                    f"Failed to send message to DLQ: {dlq_err}. Message will not be acknowledged to avoid data loss.")
                 return False
         except Exception as e:
-            logger.error(f"Unexpected error processing message: {e}. Message will be retried on next poll (offset not committed).")
+            logger.error(f"Unexpected error processing message: {e}. Message will be retried on next poll (not acknowledged).")
             return False
     return wrapper

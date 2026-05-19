@@ -2,7 +2,7 @@ import asyncio, random, logging
 from datetime import datetime
 from producer import OrderProducer
 from mocks.models import ProductCategory, OrderStatus
-from config import KAFKA_BOOTSTRAP_SERVERS, KAFKA_TOPIC, TEST_NUM_ORDERS
+from config import REDIS_URL, REDIS_STREAM_KEY, TEST_NUM_ORDERS
 
 logging.basicConfig(
     level=logging.INFO,
@@ -31,8 +31,8 @@ def generate_test_order(order_id: int) -> dict:
 
 async def main():
     producer = OrderProducer(
-        bootstrap_server=KAFKA_BOOTSTRAP_SERVERS,
-        topic=KAFKA_TOPIC,
+        redis_url=REDIS_URL,
+        stream_key=REDIS_STREAM_KEY,
     )
 
     try:
@@ -47,16 +47,10 @@ async def main():
             orders.append(order)
             logger.info(f"Generated test order: {order['id']}")
 
-        logger.info(f"Publishing {len(orders)} orders to Kafka topic '{KAFKA_TOPIC}'...")
+        logger.info(f"Publishing {len(orders)} orders to Redis stream '{REDIS_STREAM_KEY}'...")
         await producer.publish_orders_batch(orders)
 
         logger.info(f"Successfully published {len(orders)} orders")
-
-        info = await producer.get_topic_info()
-        logger.info(f"Topic info: {info}")
-
-        partitions = await producer.get_topic_partitions_count()
-        logger.info(f"Topic partitions: {partitions}")
 
     except Exception as e:
         logger.error(f"Error in test producer: {e}")

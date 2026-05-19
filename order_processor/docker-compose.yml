@@ -1,32 +1,9 @@
 services:
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.5.0
-    container_name: order_processor_zookeeper
-    environment:
-      ZOOKEEPER_CLIENT_PORT: ${ZOOKEEPER_CLIENT_PORT}
-      ZOOKEEPER_TICK_TIME: ${ZOOKEEPER_TICK_TIME}
-    networks:
-      - order_processor_network
-
-  kafka:
-    image: confluentinc/cp-kafka:7.5.0
-    container_name: order_processor_kafka
-    depends_on:
-      - zookeeper
+  redis:
+    image: redis:7-alpine
+    container_name: order_processor_redis
     ports:
-      - "9092:9092"
-    environment:
-      KAFKA_BROKER_ID: ${KAFKA_BROKER_ID}
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:${ZOOKEEPER_CLIENT_PORT}
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: ${KAFKA_REPLICATION_FACTOR}
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: ${KAFKA_AUTO_CREATE_TOPICS_ENABLE}
-      KAFKA_NUM_PARTITIONS: ${KAFKA_NUM_PARTITIONS}
-    healthcheck:
-      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
-      interval: 5s
-      timeout: 10s
-      retries: 10
+      - "6379:6379"
     networks:
       - order_processor_network
 
@@ -41,15 +18,10 @@ services:
     env_file:
       - .env
     depends_on:
-      kafka:
-        condition: service_healthy
+      - redis
     restart: unless-stopped
     networks:
       - order_processor_network
-
-volumes:
-  kafka_data:
-    driver: local
 
 networks:
   order_processor_network:

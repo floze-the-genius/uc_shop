@@ -1,1 +1,1 @@
-aiokafka>=0.9.0
+redis>=5.0.0

@@ -1,10 +1,11 @@
-import asyncio, json, logging, signal, traceback
-from aiokafka import AIOKafkaConsumer, AIOKafkaProducer, TopicPartition
+import asyncio, json, logging, signal, socket, traceback
+import redis.asyncio as redis
+from redis.exceptions import ResponseError
 from config import (
-    KAFKA_BOOTSTRAP_SERVERS,
-    KAFKA_TOPIC,
-    KAFKA_GROUP_ID,
-    KAFKA_DLQ_TOPIC,
+    REDIS_URL,
+    REDIS_STREAM_KEY,
+    REDIS_GROUP_NAME,
+    REDIS_DLQ_STREAM_KEY,
     CONSUMER_NAME,
     MAX_PARALLEL_ORDERS,
     POLL_TIMEOUT_MS,
@@ -22,68 +23,54 @@ logger = logging.getLogger(__name__)
 class OrderConsumerWorker:
     def __init__(
         self,
-        bootstrap_servers: str = KAFKA_BOOTSTRAP_SERVERS,
-        topic: str = KAFKA_TOPIC,
-        group_id: str = KAFKA_GROUP_ID,
-        dlq_topic: str = KAFKA_DLQ_TOPIC,
+        redis_url: str = REDIS_URL,
+        stream_key: str = REDIS_STREAM_KEY,
+        group_name: str = REDIS_GROUP_NAME,
+        dlq_stream_key: str = REDIS_DLQ_STREAM_KEY,
         consumer_name: str | None = None,
         max_parallel_orders: int = MAX_PARALLEL_ORDERS,
         poll_timeout_ms: int = POLL_TIMEOUT_MS,
         max_retries: int = MAX_RETRIES,
         retry_delay: int = RETRY_DELAY_SECONDS,
     ):
-        self.bootstrap_servers = bootstrap_servers
-        self.topic = topic
-        self.group_id = group_id
-        self.dlq_topic = dlq_topic
-        self.consumer_name = consumer_name or CONSUMER_NAME
+        self.redis_url = redis_url
+        self.stream_key = stream_key
+        self.group_name = group_name
+        self.dlq_stream_key = dlq_stream_key
+        self.consumer_name = consumer_name or f"{CONSUMER_NAME}_{socket.gethostname()}"
         self.max_parallel_orders = max_parallel_orders
         self.poll_timeout_ms = poll_timeout_ms
         self.max_retries = max_retries
         self.retry_delay = retry_delay
-        self._consumer: AIOKafkaConsumer | None = None
-        self._dlq_producer: AIOKafkaProducer | None = None
+        self._redis: redis.Redis | None = None
         self._running = False
         self._orders_repo = OrdersRepository()
         self._product_repo = ProductRepository()
 
     async def connect(self) -> None:
-        self._consumer = AIOKafkaConsumer(
-            self.topic,
-            bootstrap_servers=self.bootstrap_servers,
-            group_id=self.group_id,
-            enable_auto_commit=False,
-            auto_offset_reset="earliest",
-            value_deserializer=lambda m: json.loads(m.decode("utf-8")),
-            max_poll_records=self.max_parallel_orders,
-            client_id=self.consumer_name,
-        )
-        await self._consumer.start()
+        self._redis = redis.from_url(self.redis_url, decode_responses=True)
+        await self._redis.ping()
+        try:
+            await self._redis.xgroup_create(self.stream_key, self.group_name, id="0", mkstream=True)
+            logger.info(f"Created consumer group '{self.group_name}' for stream '{self.stream_key}'")
+        except ResponseError as e:
+            if "BUSYGROUP" in str(e):
+                logger.info(f"Consumer group '{self.group_name}' already exists")
+            else:
+                raise
         logger.info(
-            f"Worker {self.consumer_name} connected to Kafka at {self.bootstrap_servers} "
-            f"(topic={self.topic}, group_id={self.group_id})"
-        )
-
-        self._dlq_producer = AIOKafkaProducer(
-            bootstrap_servers=self.bootstrap_servers,
-            value_serializer=lambda v: json.dumps(v).encode("utf-8"),
-            key_serializer=lambda k: k.encode("utf-8") if k else None,
-        )
-        await self._dlq_producer.start()
-        logger.info(
-            f"Worker {self.consumer_name} DLQ producer connected (dlq_topic={self.dlq_topic})"
+            f"Worker {self.consumer_name} connected to Redis at {self.redis_url} "
+            f"(stream={self.stream_key}, group={self.group_name})"
         )
 
     async def disconnect(self) -> None:
-        if self._consumer:
-            await self._consumer.stop()
-            logger.info(f"Worker {self.consumer_name} consumer disconnected from Kafka")
-        if self._dlq_producer:
-            await self._dlq_producer.stop()
-            logger.info(f"Worker {self.consumer_name} DLQ producer disconnected")
+        if self._redis:
+            await self._redis.close()
+            logger.info(f"Worker {self.consumer_name} disconnected from Redis")
 
-    def _parse_order_from_message(self, message) -> OrderDict:
-        value = message.value
+    def _parse_order_from_fields(self, fields: dict) -> OrderDict:
+        data = fields.get("data")
+        value = json.loads(data)
         return {
             "id": value.get("id") or value.get("order_id"),
             "status": value.get("status"),
@@ -108,38 +95,31 @@ class OrderConsumerWorker:
 
         logger.info(f"Successfully processed order {order['id']}: {result}")
 
-    async def _send_to_dlq(self, message, error_reason: str) -> None:
+    async def _send_to_dlq(self, fields: dict, error_reason: str) -> None:
+        data = fields.get("data")
+        original_message = json.loads(data) if data else None
         dlq_payload = {
-            "original_message": message.value,
+            "original_message": original_message,
             "error_reason": error_reason,
             "consumer_name": self.consumer_name,
             "retry_count": self.max_retries,
             "failed_at": asyncio.get_event_loop().time(),
         }
-        await self._dlq_producer.send(
-            self.dlq_topic,
-            key=message.key,
-            value=dlq_payload,
-        )
+        await self._redis.xadd(self.dlq_stream_key, {"data": json.dumps(dlq_payload)})
         logger.warning(
-            f"Sent message for order {message.value.get('id') or message.value.get('order_id')} "
-            f"to DLQ topic '{self.dlq_topic}': {error_reason}"
+            f"Sent message to DLQ stream '{self.dlq_stream_key}': {error_reason}"
         )
 
     @dlq_safe
-    async def _try_process_message(self, message, tp: TopicPartition) -> None:
-        order = self._parse_order_from_message(message)
+    async def _try_process_message(self, message_id: str, fields: dict) -> None:
+        order = self._parse_order_from_fields(fields)
         await self._process_single_order(order)
 
-    async def _process_partition_messages(self, tp: TopicPartition, messages: list) -> None:
-        for message in messages:
-            if not self._running:
-                break
-
-            needs_commit = await self._try_process_message(message, tp)
-            if needs_commit:
-                await self._consumer.commit({tp: message.offset + 1})
-                logger.info(f"Committed offset {message.offset + 1} for {tp}")
+    async def _process_and_ack(self, message_id: str, fields: dict) -> None:
+        needs_ack = await self._try_process_message(message_id, fields)
+        if needs_ack:
+            await self._redis.xack(self.stream_key, self.group_name, message_id)
+            logger.info(f"Acknowledged message {message_id} on {self.stream_key}")
 
     async def run(self) -> None:
         await self.connect()
@@ -149,23 +129,27 @@ class OrderConsumerWorker:
 
         while self._running:
             try:
-                result = await self._consumer.getmany(
-                    timeout_ms=self.poll_timeout_ms,
-                    max_records=self.max_parallel_orders,
+                result = await self._redis.xreadgroup(
+                    groupname=self.group_name,
+                    consumername=self.consumer_name,
+                    streams={self.stream_key: ">"},
+                    count=self.max_parallel_orders,
+                    block=self.poll_timeout_ms,
                 )
 
                 if not result:
                     continue
 
                 tasks = []
-                for tp, messages in result.items():
+                for stream_name, messages in result:
                     if messages:
                         logger.info(
-                            f"Received {len(messages)} messages from {tp}"
+                            f"Received {len(messages)} messages from {stream_name}"
                         )
-                        tasks.append(
-                            self._process_partition_messages(tp, messages)
-                        )
+                        for message_id, fields in messages:
+                            tasks.append(
+                                self._process_and_ack(message_id, fields)
+                            )
 
                 if tasks:
                     await asyncio.gather(*tasks, return_exceptions=True)
@@ -190,8 +174,7 @@ async def main():
     )
 
     worker = OrderConsumerWorker(
-        bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
-        consumer_name=CONSUMER_NAME,
+        redis_url=REDIS_URL,
         max_parallel_orders=MAX_PARALLEL_ORDERS,
         max_retries=MAX_RETRIES,
         retry_delay=RETRY_DELAY_SECONDS,

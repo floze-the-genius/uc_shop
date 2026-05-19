@@ -23,20 +23,24 @@ docker-compose down
 ### Суть решения
 
 ```
-Заказ создается -> Kafka Topic (orders) -> Consumer Group (order_processors) -> Workers
+Заказ создается -> Redis Stream (orders) -> Consumer Group (order_processors) -> Workers
                                                     |
                                                     v
-                              Offset Commit / Retry (без коммита при ошибке)
+                              XACK / Retry (без ack при ошибке) / DLQ (orders_dlq)
 ```
 
-### Преимущества использования Kafka
+### Преимущества использования Redis Streams
 
 **Event-driven**: Заказы обрабатываются сразу после создания, без polling
 
-**Distributed**: Несколько consumer'ов в одной group распределяют партиции между собой
+**Distributed**: Несколько consumer'ов в одной группе распределяют сообщения между собой автоматически
 
-**Persistent**: Сообщения хранятся на диске с настраиваемым retention
+**Persistent**: Сообщения хранятся в Redis до явного подтверждения обработки (XACK) или истечения retention
 
-**Scalable**: Масштабируется за счет увеличения партиций и worker'ов
+**Scalable**: Масштабируется за счет увеличения количества worker'ов в одной consumer group
 
-**Proper ordering**: Сообщения внутри одной партиции обрабатываются последовательно
+**Proper ordering**: Сообщения внутри одного stream обрабатываются последовательно, а consumer group гарантирует распределение между воркерами
+
+**DLQ**: Сообщения, исчерпавшие все retry, отправляются в отдельный stream `orders_dlq` для ручного разбора
+
+**FSM**: Переходы статусов заказов валидируются через Finite State Machine — невалидные переходы (например, COMPLETED -> PENDING) отклоняются

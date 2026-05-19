@@ -1,4 +1,7 @@
-from mocks.models import OrderDict, OrderUpdate, OrderStatus, ProductCategory
+import logging
+from mocks.models import OrderDict, OrderUpdate, OrderStatus, ProductCategory, OrderFSM
+
+logger = logging.getLogger(__name__)
 
 class OrdersRepository:
     def __init__(self):
@@ -10,10 +13,22 @@ class OrdersRepository:
     async def update_order(self, order_id: str, order_data: OrderUpdate) -> bool:
         if order_id not in self._orders:
             return False
-        
+
         order = self._orders[order_id]
-        if order_data.status:
-            order["status"] = order_data.status.value
+        current_status = order.get("status")
+        if order_data.status and current_status != order_data.status:
+            target_status = order_data.status.value
+
+            if not OrderFSM.is_transition_allowed(current_status, target_status):
+                logger.warning(
+                    f"Order status transition rejected for order {order_id}: "
+                    f"{current_status if current_status else 'None'} -> {target_status}"
+                )
+                return False
+
+            order["status"] = target_status
+            logger.info(f"Updated order {order_id} status from {current_status} to {target_status}")
+
         if order_data.metadata is not None:
             order["metadata"] = order_data.metadata
         return True

@@ -1,4 +1,4 @@
-import asyncio, json, logging
+import json, logging
 from typing import Any
 import redis.asyncio as redis
 from config import REDIS_URL, REDIS_STREAM_KEY

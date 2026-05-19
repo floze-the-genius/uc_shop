@@ -90,8 +90,10 @@ class OrderConsumerWorker:
 
         result = await processor.process_order(order["id"])
 
-        order_update = OrderUpdate(status=OrderStatus.COMPLETED)
-        await self._orders_repo.update_order(order["id"], order_update)
+        order_update = OrderUpdate(status=OrderStatus(order.get('status')))
+        updated = await self._orders_repo.update_order(order["id"], order_update)
+        if not updated:
+            logger.warning(f"Could not update order {order['id']}")
 
         logger.info(f"Successfully processed order {order['id']}: {result}")
 

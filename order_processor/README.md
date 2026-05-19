@@ -10,6 +10,9 @@ docker-compose up -d --build
 ```bash
 docker exec -it order_processor-worker-1 python3 test_producer.py
 ```
+```bash
+docker exec -it order_processor-worker-1 python3 test_duplicate_producer.py
+```
 
 ### Остановка
 

@@ -43,10 +43,3 @@ class OrderFSM:
             return current != OrderStatus.COMPLETED
         return target in cls._transitions.get(current, set())
 
-    @classmethod
-    def validate_transition(cls, current: OrderStatus | None, target: OrderStatus) -> None:
-        if not cls.is_transition_allowed(current, target):
-            current_str = current.value if current else "None"
-            raise InvalidStateTransitionError(
-                f"Transition from '{current_str}' to '{target.value}' is not allowed."
-            )

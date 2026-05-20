@@ -22,6 +22,7 @@ async def main():
             {"id": "dup_order_1", "status": "pending", "product_category": "gcrystals", "is_w_telegram_id": False, "metadata": {"step": 1}},
             {"id": "dup_order_1", "status": "paid", "product_category": "gcrystals", "is_w_telegram_id": False, "metadata": {"step": 2}},
             {"id": "dup_order_1", "status": "api_pending", "product_category": "gcrystals", "is_w_telegram_id": False, "metadata": {"step": 3}},
+            {"id": "dup_order_1", "status": "api_pending", "product_category": "gcrystals", "is_w_telegram_id": False, "metadata": {"step": 3}},
             {"id": "dup_order_1", "status": "processing", "product_category": "gcrystals", "is_w_telegram_id": False, "metadata": {"step": 4}},
             {"id": "dup_order_1", "status": "completed", "product_category": "gcrystals", "is_w_telegram_id": False, "metadata": {"step": 5}},
             {"id": "dup_order_2", "status": "api_pending", "product_category": "coins", "is_w_telegram_id": True, "metadata": {"step": 3}},

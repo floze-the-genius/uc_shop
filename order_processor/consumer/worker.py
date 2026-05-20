@@ -93,7 +93,11 @@ class OrderConsumerWorker:
         existing = await self._orders_repo.get_order_by_id(order.id, session=session)
         if existing:
             await session.refresh(existing)
-            if existing.status == order.status or not OrderFSM.is_transition_allowed(existing.status, order.status):
+            if existing.status == order.status:
+                logger.warning(f"Order {existing.id} same status transition: ({existing.status}), skipping processing")
+                return True
+                   
+            if not OrderFSM.is_transition_allowed(existing.status, order.status):
                 logger.warning(f"Order {existing.id} incorrect status transition: {existing.status} -> {order.status}")
                 return False
 

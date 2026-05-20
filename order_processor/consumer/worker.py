@@ -1,6 +1,6 @@
 import asyncio, json, logging, signal, socket, traceback
 import redis.asyncio as redis
-from redis.exceptions import ResponseError
+from redis.exceptions import ResponseError, LockError
 from config import (
     REDIS_URL,
     REDIS_STREAM_KEY,
@@ -17,7 +17,7 @@ from src.repositories import OrdersRepository, ProductRepository
 from src.processor import OrderProcessorFactory
 from src.models import OrderStatus, OrderUpdate, OrderFSM
 from src.models.orders import Order
-from .wrapper import retry, dlq_safe
+from .wrapper import retry, RetryExhaustedError
 
 logger = logging.getLogger(__name__)
 
@@ -87,12 +87,15 @@ class OrderConsumerWorker:
 
     @retry(retries=MAX_RETRIES, delay=RETRY_DELAY_SECONDS)
     @transactional(async_session_maker)
-    async def _process_single_order(self, order: Order, *, session) -> None:
+    async def _process_single_order(self, order: Order, *, session) -> bool:
         logger.info(f"Processing order {order.id}")
 
         existing = await self._orders_repo.get_order_by_id(order.id, session=session)
-        if existing and (existing.status == order.status or not OrderFSM.is_transition_allowed(existing.status, order.status)):
-            return
+        if existing:
+            await session.refresh(existing)
+            if existing.status == order.status or not OrderFSM.is_transition_allowed(existing.status, order.status):
+                logger.warning(f"Order {existing.id} incorrect status transition: {existing.status} -> {order.status}")
+                return False
 
         if not existing:
             await self._orders_repo.create_order(order, session=session)
@@ -106,8 +109,10 @@ class OrderConsumerWorker:
             updated = await self._orders_repo.update_order(order.id, order_update, session=session)
             if not updated:
                 logger.warning(f"Could not update order {order.id}")
+                return False
 
         logger.info(f"Successfully processed order {order.id}: {result}")
+        return True
 
     async def _send_to_dlq(self, fields: dict, error_reason: str) -> None:
         data = fields.get("data")
@@ -124,16 +129,38 @@ class OrderConsumerWorker:
             f"Sent message to DLQ stream '{self.dlq_stream_key}': {error_reason}"
         )
 
-    @dlq_safe
-    async def _try_process_message(self, message_id: str, fields: dict) -> None:
-        order = self._parse_order_from_fields(fields)
-        await self._process_single_order(order)
+    async def _try_process_message(self, message_id: str, fields: dict, order: Order) -> bool:
+        try:
+            return await self._process_single_order(order)
+        except RetryExhaustedError as e:
+            logger.error(f"Message exhausted all retries. Sending to DLQ.")
+            try:
+                await self._send_to_dlq(fields, str(e))
+                return True
+            except Exception as dlq_err:
+                logger.error(
+                    f"Failed to send message to DLQ: {dlq_err}. Message will not be acknowledged to avoid data loss."
+                )
+                return False
+        except Exception as e:
+            logger.error(f"Unexpected error processing message: {e}. Message will be retried on next poll (not acknowledged).")
+            return False
 
-    async def _process_and_ack(self, message_id: str, fields: dict) -> None:
-        needs_ack = await self._try_process_message(message_id, fields)
-        if needs_ack:
-            await self._redis.xack(self.stream_key, self.group_name, message_id)
-            logger.info(f"Acknowledged message {message_id} on {self.stream_key}")
+    async def _process_and_ack(self, message_id: str, fields: dict) -> bool:
+        order = self._parse_order_from_fields(fields)
+        lock_key = f"order_lock:{order.id}"
+        lock = self._redis.lock(lock_key, timeout=60, blocking_timeout=None)
+        try:
+            async with lock:
+                needs_ack = await self._try_process_message(message_id, fields, order)
+                if needs_ack:
+                    await self._redis.xack(self.stream_key, self.group_name, message_id)
+                    logger.info(f"Acknowledged message {message_id} on {self.stream_key}")
+                    return True
+                return False
+        except LockError:
+            logger.warning(f"Could not acquire lock for order {order.id}, message will be retried on next poll")
+            return False
 
     async def run(self) -> None:
         await self.connect()
@@ -143,6 +170,19 @@ class OrderConsumerWorker:
 
         while self._running:
             try:
+                pending = await self._redis.xreadgroup(
+                    groupname=self.group_name,
+                    consumername=self.consumer_name,
+                    streams={self.stream_key: "0"},
+                    count=self.max_parallel_orders,
+                )
+                if pending and pending[0][1]:
+                    for message_id, fields in pending[0][1]:
+                        acked = await self._process_and_ack(message_id, fields)
+                        if not acked:
+                            await asyncio.sleep(1)
+                    continue
+
                 result = await self._redis.xreadgroup(
                     groupname=self.group_name,
                     consumername=self.consumer_name,
@@ -154,19 +194,13 @@ class OrderConsumerWorker:
                 if not result:
                     continue
 
-                tasks = []
                 for stream_name, messages in result:
                     if messages:
                         logger.info(
                             f"Received {len(messages)} messages from {stream_name}"
                         )
                         for message_id, fields in messages:
-                            tasks.append(
-                                self._process_and_ack(message_id, fields)
-                            )
-
-                if tasks:
-                    await asyncio.gather(*tasks, return_exceptions=True)
+                            await self._process_and_ack(message_id, fields)
 
             except asyncio.CancelledError:
                 logger.info(f"Worker {self.consumer_name} cancelled")

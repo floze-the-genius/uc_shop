@@ -1,6 +1,6 @@
 import asyncio
-from mocks.repositories import OrdersRepository, ProductRepository
-from mocks.models import OrderStatus
+from src.repositories import OrdersRepository, ProductRepository
+from src.models import OrderStatus
 from typing import Any
 
 class OrderProcessor:
@@ -15,4 +15,3 @@ class OrderProcessor:
     async def update_order_status(self, order_id: str, status: OrderStatus) -> dict[str, Any]:
         await asyncio.sleep(0.2)
         return {"success": True, "order_id": order_id, "status": status.value}
-

@@ -12,9 +12,11 @@ from config import (
     MAX_RETRIES,
     RETRY_DELAY_SECONDS,
 )
-from mocks.repositories import OrdersRepository, ProductRepository
-from mocks.processor import OrderProcessorFactory
-from mocks.models import OrderStatus, OrderDict, OrderUpdate
+from db import async_session_maker
+from src.repositories import OrdersRepository, ProductRepository
+from src.processor import OrderProcessorFactory
+from src.models import OrderStatus, OrderUpdate
+from src.models.orders import Order
 from .wrapper import retry, dlq_safe
 
 logger = logging.getLogger(__name__)
@@ -44,8 +46,8 @@ class OrderConsumerWorker:
         self.retry_delay = retry_delay
         self._redis: redis.Redis | None = None
         self._running = False
-        self._orders_repo = OrdersRepository()
-        self._product_repo = ProductRepository()
+        self._orders_repo: OrdersRepository | None = None
+        self._product_repo: ProductRepository | None = None
 
     async def connect(self) -> None:
         self._redis = redis.from_url(self.redis_url, decode_responses=True)
@@ -58,6 +60,10 @@ class OrderConsumerWorker:
                 logger.info(f"Consumer group '{self.group_name}' already exists")
             else:
                 raise
+
+        self._orders_repo = OrdersRepository(async_session_maker)
+        self._product_repo = ProductRepository(async_session_maker)
+
         logger.info(
             f"Worker {self.consumer_name} connected to Redis at {self.redis_url} "
             f"(stream={self.stream_key}, group={self.group_name})"
@@ -68,34 +74,34 @@ class OrderConsumerWorker:
             await self._redis.close()
             logger.info(f"Worker {self.consumer_name} disconnected from Redis")
 
-    def _parse_order_from_fields(self, fields: dict) -> OrderDict:
+    def _parse_order_from_fields(self, fields: dict) -> Order:
         data = fields.get("data")
         value = json.loads(data)
-        return {
-            "id": value.get("id") or value.get("order_id"),
-            "status": value.get("status"),
-            "product_category": value.get("product_category"),
-            "is_w_telegram_id": value.get("is_w_telegram_id", False),
-            "metadata": value.get("metadata", {}),
-        }
+        return Order(
+            id=value.get("id") or value.get("order_id"),
+            status=value.get("status"),
+            product_category=value.get("product_category"),
+            is_w_telegram_id=value.get("is_w_telegram_id", False),
+            _metadata=value.get("metadata", {}),
+        )
 
     @retry(retries=MAX_RETRIES, delay=RETRY_DELAY_SECONDS)
-    async def _process_single_order(self, order: OrderDict) -> None:
-        logger.info(f"Processing order {order['id']}")
+    async def _process_single_order(self, order: Order) -> None:
+        logger.info(f"Processing order {order.id}")
 
         await self._orders_repo.get_or_create(order)
 
         factory = OrderProcessorFactory(self._orders_repo, self._product_repo)
-        processor = await factory.get_processor_for_order(order["id"])
+        processor = await factory.get_processor_for_order(order.id)
 
-        result = await processor.process_order(order["id"])
+        result = await processor.process_order(order.id)
 
-        order_update = OrderUpdate(status=OrderStatus(order.get('status')))
-        updated = await self._orders_repo.update_order(order["id"], order_update)
+        order_update = OrderUpdate(status=OrderStatus(order.status))
+        updated = await self._orders_repo.update_order(order.id, order_update)
         if not updated:
-            logger.warning(f"Could not update order {order['id']}")
+            logger.warning(f"Could not update order {order.id}")
 
-        logger.info(f"Successfully processed order {order['id']}: {result}")
+        logger.info(f"Successfully processed order {order.id}: {result}")
 
     async def _send_to_dlq(self, fields: dict, error_reason: str) -> None:
         data = fields.get("data")

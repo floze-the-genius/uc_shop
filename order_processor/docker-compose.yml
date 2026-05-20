@@ -1,4 +1,37 @@
 services:
+  alembic:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: alembic upgrade head
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - order_processor_network
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: order_processor_postgres
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASS}
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      - "5432:${DB_PORT}"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - order_processor_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
   redis:
     image: redis:7-alpine
     container_name: order_processor_redis
@@ -18,10 +51,18 @@ services:
     env_file:
       - .env
     depends_on:
-      - redis
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      alembic:
+        condition: service_completed_successfully
     restart: unless-stopped
     networks:
       - order_processor_network
+
+volumes:
+  postgres_data:
 
 networks:
   order_processor_network:

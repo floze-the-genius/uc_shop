@@ -1,6 +1,6 @@
 import asyncio
-from mocks.repositories import OrdersRepository, ProductRepository
-from mocks.models import OrderStatus
+from src.repositories import OrdersRepository, ProductRepository
+from src.models import OrderStatus
 from typing import Any
 
 class FailingOrderProcessor:

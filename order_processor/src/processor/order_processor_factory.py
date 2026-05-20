@@ -1,5 +1,5 @@
 import asyncio, random
-from mocks.repositories import OrdersRepository, ProductRepository
+from src.repositories import OrdersRepository, ProductRepository
 from .order_processor import OrderProcessor
 from .failing_order_processor import FailingOrderProcessor
 

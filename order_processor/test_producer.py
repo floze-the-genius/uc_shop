@@ -1,7 +1,7 @@
 import asyncio, random, logging
 from datetime import datetime
 from producer import OrderProducer
-from mocks.models import ProductCategory, OrderStatus
+from src.models import OrderStatus, ProductCategory
 from config import REDIS_URL, REDIS_STREAM_KEY, TEST_NUM_ORDERS
 
 logging.basicConfig(
@@ -12,13 +12,12 @@ logger = logging.getLogger(__name__)
 
 
 def generate_test_order(order_id: int) -> dict:
-    categories = list(ProductCategory)
     statuses = [OrderStatus.API_PENDING, OrderStatus.PENDING, OrderStatus.PAID]
 
     return {
         "id": f"order_{order_id}",
         "status": random.choice(statuses),
-        "product_category": random.choice(categories),
+        "product_category": random.choice(list(ProductCategory)),
         "is_w_telegram_id": random.choice([True, False]),
         "metadata": {
             "user_id": f"user_{random.randint(1000, 9999)}",

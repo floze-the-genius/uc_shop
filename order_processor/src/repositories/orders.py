@@ -1,5 +1,4 @@
 import logging
-from typing import Any
 
 from sqlalchemy import select
 
@@ -15,12 +14,12 @@ class OrdersRepository:
         self._session_maker = session_maker
 
     @with_session()
-    async def get_order_by_id(self, session, order_id: str) -> Order | None:
+    async def get_order_by_id(self, order_id: str, *, session) -> Order | None:
         result = await session.execute(select(Order).where(Order.id == order_id))
         return result.scalar_one_or_none()
 
     @with_session()
-    async def update_order(self, session, order_id: str, order_data: OrderUpdate) -> bool:
+    async def update_order(self, order_id: str, order_data: OrderUpdate, *, session) -> bool:
         result = await session.execute(select(Order).where(Order.id == order_id))
         row = result.scalar_one_or_none()
         if not row:
@@ -54,11 +53,12 @@ class OrdersRepository:
     @with_session()
     async def get_orders_by_statuses(
         self,
-        session,
         statuses: list[OrderStatus],
-        include_only: list[Any] | None = None,
+        include_only: list[str] | None = None,
         is_w_telegram_id: bool | None = None,
         limit: int = 20,
+        *, 
+        session
     ) -> list[Order]:
         status_values = [s.value for s in statuses]
         query = select(Order).where(Order.status.in_(status_values))
@@ -71,16 +71,6 @@ class OrdersRepository:
         return list(result.scalars().all())
 
     @with_session()
-    async def create_order(self, session, order: Order) -> Order:
-        existing = await self.get_order_by_id(order.id)
-        if existing:
-            return
-        
+    async def create_order(self, order: Order, *, session) -> Order:
         session.add(order)
         return order
-
-    async def get_or_create(self, order: Order) -> Order:
-        result = await self.get_order_by_id(order.id)
-        if result:
-            return result
-        return await self.create_order(order)

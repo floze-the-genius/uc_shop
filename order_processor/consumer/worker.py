@@ -12,7 +12,7 @@ from config import (
     MAX_RETRIES,
     RETRY_DELAY_SECONDS,
 )
-from db import async_session_maker
+from db import async_session_maker, transactional
 from src.repositories import OrdersRepository, ProductRepository
 from src.processor import OrderProcessorFactory
 from src.models import OrderStatus, OrderUpdate
@@ -86,14 +86,16 @@ class OrderConsumerWorker:
         )
 
     @retry(retries=MAX_RETRIES, delay=RETRY_DELAY_SECONDS)
-    async def _process_single_order(self, order: Order) -> None:
+    @transactional(async_session_maker)
+    async def _process_single_order(self, order: Order, *, session) -> None:
         logger.info(f"Processing order {order.id}")
 
-        existing = await self._orders_repo.get_order_by_id(order.id)
+        existing = await self._orders_repo.get_order_by_id(order.id, session=session)
         if existing and existing.status == order.status:
             return
 
-        await self._orders_repo.create_order(order)
+        if not existing:
+            await self._orders_repo.create_order(order, session=session)
 
         factory = OrderProcessorFactory(self._orders_repo, self._product_repo)
         processor = await factory.get_processor_for_order(order.id)
@@ -102,7 +104,7 @@ class OrderConsumerWorker:
 
         if existing:
             order_update = OrderUpdate(status=OrderStatus(order.status))
-            updated = await self._orders_repo.update_order(order.id, order_update)
+            updated = await self._orders_repo.update_order(order.id, order_update, session=session)
             if not updated:
                 logger.warning(f"Could not update order {order.id}")
 

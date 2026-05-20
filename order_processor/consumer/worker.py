@@ -178,10 +178,8 @@ class OrderConsumerWorker:
                 )
                 if pending and pending[0][1]:
                     for message_id, fields in pending[0][1]:
-                        acked = await self._process_and_ack(message_id, fields)
-                        if not acked:
-                            await asyncio.sleep(1)
-                    continue
+                        logger.info(f"Received {len(pending[0][1])} messages from PEL of {stream_name}")
+                        await self._process_and_ack(message_id, fields)
 
                 result = await self._redis.xreadgroup(
                     groupname=self.group_name,
@@ -196,9 +194,7 @@ class OrderConsumerWorker:
 
                 for stream_name, messages in result:
                     if messages:
-                        logger.info(
-                            f"Received {len(messages)} messages from {stream_name}"
-                        )
+                        logger.info(f"Received {len(messages)} messages from {stream_name}")
                         for message_id, fields in messages:
                             await self._process_and_ack(message_id, fields)
 

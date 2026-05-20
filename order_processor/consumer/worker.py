@@ -15,7 +15,7 @@ from config import (
 from db import async_session_maker, transactional
 from src.repositories import OrdersRepository, ProductRepository
 from src.processor import OrderProcessorFactory
-from src.models import OrderStatus, OrderUpdate
+from src.models import OrderStatus, OrderUpdate, OrderFSM
 from src.models.orders import Order
 from .wrapper import retry, dlq_safe
 
@@ -91,7 +91,7 @@ class OrderConsumerWorker:
         logger.info(f"Processing order {order.id}")
 
         existing = await self._orders_repo.get_order_by_id(order.id, session=session)
-        if existing and existing.status == order.status:
+        if existing and (existing.status == order.status or not OrderFSM.is_transition_allowed(existing.status, order.status)):
             return
 
         if not existing:
@@ -99,7 +99,6 @@ class OrderConsumerWorker:
 
         factory = OrderProcessorFactory(self._orders_repo, self._product_repo)
         processor = await factory.get_processor_for_order(order.id)
-
         result = await processor.process_order(order.id)
 
         if existing:

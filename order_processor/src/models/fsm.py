@@ -9,19 +9,14 @@ class OrderFSM:
     _transitions: dict[OrderStatus, set[OrderStatus]] = {
         OrderStatus.PENDING: {
             OrderStatus.PAID,
-            OrderStatus.PROCESSING,
-            OrderStatus.API_PENDING,
-            OrderStatus.COMPLETED,
             OrderStatus.FAILED,
         },
         OrderStatus.PAID: {
-            OrderStatus.PROCESSING,
-            OrderStatus.COMPLETED,
+            OrderStatus.API_PENDING,
             OrderStatus.FAILED,
         },
         OrderStatus.API_PENDING: {
             OrderStatus.PROCESSING,
-            OrderStatus.COMPLETED,
             OrderStatus.FAILED,
         },
         OrderStatus.PROCESSING: {
@@ -31,6 +26,8 @@ class OrderFSM:
         OrderStatus.COMPLETED: set(),
         OrderStatus.FAILED: {
             OrderStatus.PENDING,
+            OrderStatus.PAID,
+            OrderStatus.API_PENDING,
             OrderStatus.PROCESSING,
         },
     }

@@ -72,6 +72,10 @@ class OrdersRepository:
 
     @with_session()
     async def create_order(self, session, order: Order) -> Order:
+        existing = await self.get_order_by_id(order.id)
+        if existing:
+            return
+        
         session.add(order)
         return order
 

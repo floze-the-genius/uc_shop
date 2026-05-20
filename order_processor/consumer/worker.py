@@ -89,17 +89,22 @@ class OrderConsumerWorker:
     async def _process_single_order(self, order: Order) -> None:
         logger.info(f"Processing order {order.id}")
 
-        await self._orders_repo.get_or_create(order)
+        existing = await self._orders_repo.get_order_by_id(order.id)
+        if existing and existing.status == order.status:
+            return
+
+        await self._orders_repo.create_order(order)
 
         factory = OrderProcessorFactory(self._orders_repo, self._product_repo)
         processor = await factory.get_processor_for_order(order.id)
 
         result = await processor.process_order(order.id)
 
-        order_update = OrderUpdate(status=OrderStatus(order.status))
-        updated = await self._orders_repo.update_order(order.id, order_update)
-        if not updated:
-            logger.warning(f"Could not update order {order.id}")
+        if existing:
+            order_update = OrderUpdate(status=OrderStatus(order.status))
+            updated = await self._orders_repo.update_order(order.id, order_update)
+            if not updated:
+                logger.warning(f"Could not update order {order.id}")
 
         logger.info(f"Successfully processed order {order.id}: {result}")
 

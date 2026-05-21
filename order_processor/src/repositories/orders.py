@@ -47,6 +47,19 @@ class OrdersRepository:
 
         return True
 
+    async def apply_status_update(self, order_id: str, order_data: OrderUpdate, *, session) -> Order | None:
+        result = await session.execute(select(Order).where(Order.id == order_id))
+        row = result.scalar_one_or_none()
+        if not row:
+            return None
+        if order_data.status:
+            row.status = order_data.status.value
+        if order_data.last_ts is not None:
+            row.last_ts = order_data.last_ts
+        if order_data.metadata is not None:
+            row._metadata = order_data.metadata
+        return row
+
     async def create_order(self, order: Order, *, session) -> Order:
         session.add(order)
         return order

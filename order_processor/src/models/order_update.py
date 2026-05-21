@@ -6,3 +6,4 @@ from typing import Any
 class OrderUpdate:
     status: OrderStatus | None = None
     metadata: dict[str, Any] | None = None
+    last_ts: int | None = None

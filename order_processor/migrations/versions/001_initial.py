@@ -23,6 +23,7 @@ def upgrade() -> None:
         sa.Column("metadata", sa.JSON(), nullable=True),
         sa.Column("product_category", sa.String(), nullable=True),
         sa.Column("is_w_telegram_id", sa.Boolean(), nullable=True),
+        sa.Column("last_ts", sa.BigInteger(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("NOW()"), nullable=True),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("NOW()"), nullable=True),
         sa.PrimaryKeyConstraint("id"),

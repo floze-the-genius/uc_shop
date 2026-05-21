@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Boolean, JSON, DateTime
+from sqlalchemy import Column, String, Boolean, JSON, DateTime, BigInteger
 from sqlalchemy.sql import func
 
 from .base import Base
@@ -12,5 +12,6 @@ class Order(Base):
     _metadata = Column("metadata", JSON, nullable=True)
     product_category = Column(String, nullable=True)
     is_w_telegram_id = Column(Boolean, nullable=True)
+    last_ts = Column(BigInteger, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

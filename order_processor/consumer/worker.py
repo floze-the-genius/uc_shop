@@ -142,10 +142,8 @@ class OrderConsumerWorker:
                 await self._send_to_dlq(fields, str(e))
                 return True
             except Exception as dlq_err:
-                logger.error(
-                    f"Failed to send message to DLQ: {dlq_err}. Message will not be acknowledged to avoid data loss."
-                )
-                return False
+                logger.error(f"Failed to send message to DLQ: {dlq_err}")
+                return True
         except Exception as e:
             logger.error(f"Unexpected error processing message: {e}. Message will be retried on next poll (not acknowledged).")
             return False
@@ -182,7 +180,7 @@ class OrderConsumerWorker:
                 )
                 if pending and pending[0][1]:
                     for message_id, fields in pending[0][1]:
-                        logger.info(f"Received {len(pending[0][1])} messages from PEL of {stream_name}")
+                        logger.info(f"Received {len(pending[0][1])} messages from PEL")
                         await self._process_and_ack(message_id, fields)
 
                 result = await self._redis.xreadgroup(

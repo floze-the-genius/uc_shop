@@ -1,4 +1,5 @@
 import asyncio, json, logging, signal, socket, traceback
+from collections import defaultdict
 import redis.asyncio as redis
 from redis.exceptions import ResponseError, LockError
 from config import (
@@ -230,11 +231,25 @@ class OrderConsumerWorker:
             logger.warning(f"Could not acquire lock for order {order.id}, message will be retried on next poll")
             return False
 
+    async def _process_group(self, msgs: list[tuple[str, dict]]) -> None:
+        for message_id, fields in msgs:
+            await self._process_and_ack(message_id, fields)
+
     async def run(self) -> None:
         await self.connect()
 
         self._running = True
         logger.info(f"Worker {self.consumer_name} started")
+
+        async def gather_messages_by_order_id(messages):
+            groups = defaultdict(list)
+            for message_id, fields in messages:
+                order, _ = self._parse_order_from_fields(fields, message_id)
+                groups[order.id].append((message_id, fields))
+            await asyncio.gather(
+                *[self._process_group(g) for g in groups.values()],
+                return_exceptions=True,
+            )
 
         while self._running:
             try:
@@ -245,9 +260,9 @@ class OrderConsumerWorker:
                     count=self.max_parallel_orders,
                 )
                 if pending and pending[0][1]:
-                    for message_id, fields in pending[0][1]:
-                        logger.info(f"Received {len(pending[0][1])} messages from PEL")
-                        await self._process_and_ack(message_id, fields)
+                    msgs = pending[0][1]
+                    logger.info(f"Received {len(msgs)} messages from PEL")
+                    await gather_messages_by_order_id(msgs)
 
                 result = await self._redis.xreadgroup(
                     groupname=self.group_name,
@@ -263,8 +278,7 @@ class OrderConsumerWorker:
                 for stream_name, messages in result:
                     if messages:
                         logger.info(f"Received {len(messages)} messages from {stream_name}")
-                        for message_id, fields in messages:
-                            await self._process_and_ack(message_id, fields)
+                        await gather_messages_by_order_id(messages)
 
             except asyncio.CancelledError:
                 logger.info(f"Worker {self.consumer_name} cancelled")

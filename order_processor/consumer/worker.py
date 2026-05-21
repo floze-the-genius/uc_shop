@@ -132,12 +132,10 @@ class OrderConsumerWorker:
         current_enum = OrderStatus(existing.status) if existing.status else None
         target_enum = OrderStatus(order.status) if order.status else None
 
+        last_ts = existing.last_ts or 0
         if OrderFSM.is_transition_allowed(current_enum, target_enum):
-            last_ts = existing.last_ts or 0
             if message_ts < last_ts:
-                logger.warning(
-                    f"Order {order.id} received stale update {order.status} with ts {message_ts} < last_ts {existing.last_ts}. Ignoring."
-                )
+                logger.warning(f"Order {order.id} received stale update {target_enum} with ts {message_ts} < last_ts {existing.last_ts}. Ignoring.")
                 return True, []
 
             update = OrderUpdate(status=target_enum, metadata=order._metadata, last_ts=message_ts)
@@ -147,22 +145,19 @@ class OrderConsumerWorker:
             processor = await factory.get_processor_for_order(order.id)
             await processor.process_order(order.id)
 
-            logger.info(f"Order {order.id} transitioned {existing.status} -> {order.status} (ts {message_ts})")
+            logger.info(f"Order {order.id} transitioned {current_enum} -> {target_enum} (ts {message_ts})")
 
             buffered_members = await self._drain_buffer(order.id, order.status, message_ts, session=session)
             return True, buffered_members
         else:
-            last_ts = existing.last_ts or 0
             if message_ts > last_ts:
                 key = f"order_buffer:{order.id}"
                 member = json.dumps({"status": order.status, "metadata": order._metadata}, default=str)
                 await self._redis.zadd(key, {member: message_ts})
-                logger.info(f"Order {order.id} buffered future update {order.status} (ts {message_ts})")
+                logger.info(f"Order {order.id} buffered future update {target_enum} (ts {message_ts})")
                 return True, []
             else:
-                logger.warning(
-                    f"Order {order.id} incorrect and stale status transition: {existing.status} -> {order.status} (ts {message_ts}). Dropping."
-                )
+                logger.warning(f"Order {order.id} incorrect and stale status transition: {current_enum} -> {target_enum} (ts {message_ts}). Dropping.")
                 return True, []
 
     async def _drain_buffer(self, order_id: str, current_status: str, last_ts: int, *, session) -> list[str]:
@@ -184,7 +179,7 @@ class OrderConsumerWorker:
                 removed_members.append(member)
                 current_status = target_status.value
                 last_ts = target_ts
-                logger.info(f"Order {order_id} applied buffered transition -> {target_status.value} (ts {target_ts})")
+                logger.info(f"Order {order_id} applied buffered transition -> {target_status} (ts {target_ts})")
             else:
                 break
         return removed_members

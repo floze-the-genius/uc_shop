@@ -37,6 +37,6 @@ class OrderFSM:
         if current is None:
             return True
         if current == target:
-            return current != OrderStatus.COMPLETED
+            return False
         return target in cls._transitions.get(current, set())
 

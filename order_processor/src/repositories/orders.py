@@ -13,12 +13,10 @@ class OrdersRepository:
     def __init__(self, session_maker):
         self._session_maker = session_maker
 
-    @with_session()
     async def get_order_by_id(self, order_id: str, *, session) -> Order | None:
         result = await session.execute(select(Order).where(Order.id == order_id))
         return result.scalar_one_or_none()
 
-    @with_session()
     async def update_order(self, order_id: str, order_data: OrderUpdate, *, session) -> bool:
         result = await session.execute(select(Order).where(Order.id == order_id))
         row = result.scalar_one_or_none()
@@ -50,7 +48,6 @@ class OrdersRepository:
 
         return True
 
-    @with_session()
     async def get_orders_by_statuses(
         self,
         statuses: list[OrderStatus],
@@ -70,7 +67,6 @@ class OrdersRepository:
         result = await session.execute(query)
         return list(result.scalars().all())
 
-    @with_session()
     async def create_order(self, order: Order, *, session) -> Order:
         session.add(order)
         return order

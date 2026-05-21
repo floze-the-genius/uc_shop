@@ -2,7 +2,6 @@ import logging
 
 from sqlalchemy import select
 
-from db import with_session
 from src.models.orders import Order
 from src.models import OrderUpdate, OrderStatus, OrderFSM
 
@@ -47,25 +46,6 @@ class OrdersRepository:
             row._metadata = order_data.metadata
 
         return True
-
-    async def get_orders_by_statuses(
-        self,
-        statuses: list[OrderStatus],
-        include_only: list[str] | None = None,
-        is_w_telegram_id: bool | None = None,
-        limit: int = 20,
-        *, 
-        session
-    ) -> list[Order]:
-        status_values = [s.value for s in statuses]
-        query = select(Order).where(Order.status.in_(status_values))
-        if include_only:
-            query = query.where(Order.product_category.in_(include_only))
-        if is_w_telegram_id is not None:
-            query = query.where(Order.is_w_telegram_id == is_w_telegram_id)
-        query = query.limit(limit)
-        result = await session.execute(query)
-        return list(result.scalars().all())
 
     async def create_order(self, order: Order, *, session) -> Order:
         session.add(order)

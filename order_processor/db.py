@@ -17,20 +17,6 @@ async def _run_with_commit(func, self, session, args, kwargs):
         await session.rollback()
         raise
 
-
-def with_session():
-    def decorator(func):
-        @functools.wraps(func)
-        async def wrapper(self, *args, **kwargs):
-            session = kwargs.get("session")
-            if not session:
-                async with self._session_maker() as session:
-                    return await _run_with_commit(func, self, session, args, kwargs)
-            return await _run_with_commit(func, self, session, args, kwargs)
-        return wrapper
-    return decorator
-
-
 def transactional(session_maker):
     def decorator(func):
         @functools.wraps(func)

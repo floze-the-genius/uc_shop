@@ -2,7 +2,6 @@ from typing import Any
 
 from sqlalchemy import select
 
-from db import with_session
 from src.models.products import Product
 
 
